@@ -30,6 +30,7 @@ import { saveAs } from "file-saver";
 // import { useNavigate } from "react-router-dom";
 const { Option } = Select;
 const { Dragger } = Upload;
+import ExcelJS from "exceljs";
 
 const FileUpload = () => {
   const [imageFiles, setImageFiles] = useState([]);
@@ -89,11 +90,10 @@ const FileUpload = () => {
 
   const handleSubmit = async () => {
     if (!excelFile) {
-      message.warning("Please upload an PDF file.");
+      message.warning("Please upload a PDF file.");
       return;
     }
 
-    // Read and process the Excel file
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
@@ -101,120 +101,158 @@ const FileUpload = () => {
         setIsModalOpen(true);
         setIsSuccess(null);
 
-        // Simulate form data submission
         const formData = new FormData();
-        // console.log(JSON.stringify(jsonData), "JSON.stringify(jsonData)");
-        formData.append("file", excelFile); // Add JSON data
+        formData.append("file", excelFile);
 
-        // Submit the form data
         const response = await axios.post(
           "http://localhost:3001/upload/pdf",
           formData,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
-          }
+          { headers: { "Content-Type": "multipart/form-data" } }
         );
 
         if (response.status === 200) {
           message.success("Files uploaded successfully.");
           setIsSuccess(true);
           const data = response.data?.processedquestions;
-          setdownloaddata(data?.processedquestions);
-          // Prepare data for Excel
-          const rows = data.map((item) => ({
-            Negative_mark: "",
-            Tags: "",
-            Subject: "",
-            Topic: "",
-            Question: item.question,
-            option_1: item.options?.[0] || "",
-            option_2: item.options?.[1] || "",
-            option_3: item.options?.[2] || "",
-            option_4: item.options?.[3] || "",
-            Explanation: item.options?.[4] || "",
-            Answer: item.totalWrong,
-            ...item.answers, // Include answers as columns (e.g., q1, q2, ..., q100)
-          }));
-          setImageFiles([]);
-          setDefaultMcq(true);
-          // Create a worksheet
-          const worksheet = XLSX.utils.json_to_sheet(rows);
+          setdownloaddata(data);
 
-          // Create a workbook and append the worksheet
-          const workbook = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(workbook, worksheet, "Results");
+          // Create an Excel workbook and worksheet
+          const workbook = new ExcelJS.Workbook();
+          const worksheet = workbook.addWorksheet("Results");
 
-          // Write the workbook and trigger the download
-          const excelBuffer = XLSX.write(workbook, {
-            bookType: "xlsx",
-            type: "array",
+          // Define columns
+          worksheet.columns = [
+            { header: "Question Type", key: "Question Type", width: 15 },
+            { header: "Difficulty Level", key: "Difficulty Level", width: 20 },
+            { header: "Subject", key: "Subject", width: 20 },
+            { header: "Topic", key: "Topic", width: 20 },
+            { header: "Question", key: "Question", width: 50 },
+            { header: "Option A", key: "Option A", width: 30 },
+            { header: "Option B", key: "Option B", width: 30 },
+            { header: "Option C", key: "Option C", width: 30 },
+            { header: "Option D", key: "Option D", width: 30 },
+            { header: "Explanation", key: "Explanation", width: 50 },
+            { header: "Correct Answer", key: "Correct Answer", width: 10 },
+            {
+              header: "Points Correct Answer",
+              key: "Points Correct Answer",
+              width: 10,
+            },
+            {
+              header: "Points Incorrect Answer",
+              key: "Points Incorrect Answer",
+              width: 10,
+            },
+          ];
+          worksheet.getRow(1).font = { bold: true };
+          // Add rows with line breaks and apply wrap text
+          data.forEach((item) => {
+            const row = worksheet.addRow({
+              "Question Type": "",
+              "Difficulty Level": "",
+              Subject: "",
+              Topic: "",
+              Question: item.question, // Ensure question contains "\n" where needed
+              "Option A": item.options?.[0] || "",
+              "Option B": item.options?.[1] || "",
+              "Option C": item.options?.[2] || "",
+              "Option D": item.options?.[3] || "",
+              Explanation: item.Explanation || "", // Ensure Explanation contains "\n" where needed
+              "Correct Answer": item.Answer || "",
+              "Points Correct Answer": "",
+              "Points Incorrect Answer": "",
+            });
+
+            // Apply wrap text to each cell in the row
+            row.eachCell((cell) => {
+              cell.alignment = { vertical: "top", wrapText: true };
+            });
           });
-          const blob = new Blob([excelBuffer], {
-            type: "application/octet-stream",
+
+          // Generate and download the file
+          const buffer = await workbook.xlsx.writeBuffer();
+          const blob = new Blob([buffer], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           });
           saveAs(blob, "ExtractedData.xlsx");
-          // const navigateData = {
-          //   jsonData,
-          //   images: imageFiles.map((file) => URL.createObjectURL(file)), // Local preview URLs for navigation
-          //   };
-          //   navigate("/success", { state: navigateData });
         }
-        // Navigate to the success page with JSON data and images
-
-        // console.log(navigateData);
       } catch (error) {
-        message.error("Failed to upload files. Please try again.");
-
+        message.error("Failed to process file.");
         setIsSuccess(false);
       } finally {
-        setLoading(false); // Stop loading
-        setProcessing(false); // Stop loading after the API call completes
+        setProcessing(false);
       }
     };
 
     reader.readAsArrayBuffer(excelFile);
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!isSuccess) {
       message.error("Cannot download, no results to download.");
       return;
     }
-
+    console.log(downloaddata, "download data");
     // Assuming the `rows` variable is available after the upload
-    const rows = downloaddata?.map((item) => ({
-      "Candidate ID": item.candidateid,
-      "Candidate Name": item.candidatename,
-      Birthday: `${item.birthday}-${item.birthmonth}-${item.birthyear}`,
-      "Mobile Number": item.mobilenumber,
-      "Attended Questions": item.attendedQuestions,
-      "Total Correct": item.totalCorrect,
-      "Total Wrong": item.totalWrong,
-      "Total Left": item.totalLeft,
-      "Total Mark": item.totalMark,
-      Percentage: item.percentage,
-      Rank: item.rank,
-      ...item.answers, // Include answers as columns (e.g., q1, q2, ..., q100)
-    }));
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Results");
 
-    // Create a worksheet
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    // Define columns
+    worksheet.columns = [
+      { header: "Question Type", key: "Question Type", width: 15 },
+      { header: "Difficulty Level", key: "Difficulty Level", width: 20 },
+      { header: "Subject", key: "Subject", width: 20 },
+      { header: "Topic", key: "Topic", width: 20 },
+      { header: "Question", key: "Question", width: 50 },
+      { header: "Option A", key: "Option A", width: 30 },
+      { header: "Option B", key: "Option B", width: 30 },
+      { header: "Option C", key: "Option C", width: 30 },
+      { header: "Option D", key: "Option D", width: 30 },
+      { header: "Explanation", key: "Explanation", width: 50 },
+      { header: "Correct Answer", key: "Correct Answer", width: 10 },
+      {
+        header: "Points Correct Answer",
+        key: "Points Correct Answer",
+        width: 10,
+      },
+      {
+        header: "Points Incorrect Answer",
+        key: "Points Incorrect Answer",
+        width: 10,
+      },
+    ];
+    worksheet.getRow(1).font = { bold: true };
 
-    // Create a workbook and append the worksheet
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Results");
+    // Add rows with line breaks and apply wrap text
+    downloaddata.forEach((item) => {
+      const row = worksheet.addRow({
+        "Question Type": "",
+        "Difficulty Level": "",
+        Subject: "",
+        Topic: "",
+        Question: item.question, // Ensure question contains "\n" where needed
+        "Option A": item.options?.[0] || "",
+        "Option B": item.options?.[1] || "",
+        "Option C": item.options?.[2] || "",
+        "Option D": item.options?.[3] || "",
+        Explanation: item.Explanation || "", // Ensure Explanation contains "\n" where needed
+        "Correct Answer": item.Answer || "",
+        "Points Correct Answer": "",
+        "Points Incorrect Answer": "",
+      });
 
-    // Write the workbook and trigger the download
-    const excelBuffer = XLSX.write(workbook, {
-      bookType: "xlsx",
-      type: "array",
+      // Apply wrap text to each cell in the row
+      row.eachCell((cell) => {
+        cell.alignment = { vertical: "top", wrapText: true };
+      });
     });
-    const blob = new Blob([excelBuffer], {
-      type: "application/octet-stream",
+
+    // Generate and download the file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
-    saveAs(blob, "CandidatesResults.xlsx");
+    saveAs(blob, "ExtractedData.xlsx");
   };
 
   const handleModalClose = () => {
